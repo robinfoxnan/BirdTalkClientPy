@@ -1,0 +1,515 @@
+syntax = "proto3";
+//import "user.proto";
+// package com.birdfish.model;
+//package model;
+//option go_package = "server/pbmodel";
+//option go_package = "client/pbmodel";
+// protoc -I. --go_out=../ --go-grpc_out=../ msg.proto
+// protoc --plugin="protoc-gen-ts=" --js_out="import_style=commonjs,binary:." --ts_out=. user.proto
+
+
+// 用户相关的消息分为3类：User Friend Group，每一类都有请求和应答，一共是6大类消息
+// 用户信息消息
+message UserInfo {
+  int64 userId = 1;        // 注册时候全局分配的
+  string userName = 2;     // 用户名
+  string nickName = 3;     // 昵称
+  string email = 4;        // 邮箱
+  string phone = 5;        // 手机号
+  string gender = 6;       // 性别
+  int32 age = 7;           // 年龄
+  string region = 8;       // 地区
+  string icon = 9;         // 头像
+  map<string, string> params = 10;  // 其他参数，使用map存储比如，title, pwd, sid, icon
+}
+
+
+// 用户和好友操作类型枚举
+enum UserOperationType {
+  UserNoneAction = 0;
+  RegisterUser = 1;
+  UnregisterUser = 2;
+  DisableUser = 3;
+  RecoverUser = 4;
+  SetUserInfo = 5;
+  RealNameVerification = 6;
+  Login = 7;
+  Logout = 8;
+
+  FindUser = 9;
+  AddFriend = 10;
+  ApproveFriend = 11;
+  RemoveFriend = 12;
+  BlockFriend = 13;
+  UnBlockFriend = 14;
+  SetFriendPermission = 15;
+  SetFriendMemo = 16;
+}
+
+// 用户操作请求消息
+message UserOpReq {
+  UserOperationType operation = 1;     // 操作类型，例如：注册用户、注销、禁用、恢复、设置信息、实名验证、登录、退出、查找用户
+  UserInfo user = 2;        // 涉及的用户信息
+  map<string, string> params = 3;  // 比如申请好友的附加消息
+}
+
+// 用户操作结果消息
+message UserOpResult {
+  UserOperationType operation = 1;            // 操作类型
+  string result = 2;               // "ok" "fail"
+  string  status = 3;
+  repeated UserInfo users = 4;     // 涉及的用户信息列表，使用repeated表示多个用户
+  map<string, string> params = 5;
+}
+
+// 好友操作请求消息
+message FriendOpReq {
+  UserOperationType operation = 1;           // 操作类型，例如：申请好友、同意好友、删除好友、屏蔽好友
+  UserInfo user = 2;              // 涉及的用户信息，例如在申请好友时，表示被申请加为好友的用户
+  int64 sendId = 3;               // 用户发给服务器的时候带着，主要是有可能对方离线
+  int64 msgId = 4;                // 转发给用户的时候才有
+  map<string, string> params = 5;
+}
+
+// 好友操作结果消息
+message FriendOpResult {
+  UserOperationType operation = 1;            // 操作类型
+  string result = 2;                // "ok" "fail"
+  UserInfo user = 3;                // 消息发起者
+  repeated UserInfo users = 4;      // 涉及的用户信息列表，使用repeated表示多个用户
+  int64 sendId = 5;                 // 用户发给服务器的时候带着
+  int64 msgId = 6;                  // 转发给用户的时候才有
+  map<string, string> params = 7;
+}
+
+// 群组成员的信息
+message GroupMember {
+  int64 userId = 1;
+  string nick = 2;
+  string icon = 3;
+  string role = 4;              // 角色信息，例如：管理员、普通成员等
+  int64  groupId = 5;
+  map<string, string> params = 6;  // 其他参数，例如：成员特殊属性等
+}
+
+// 群组信息
+message GroupInfo {
+  int64 groupId = 1;            // 注册时全局分配的群组ID
+  repeated string tags = 2;     // 群组标签
+  string groupName = 3;         // 群组名称
+  string groupType = 4;         // 群组类型，例如：群聊、广播频道等
+  map<string, string> params = 5;  // 其他参数，例如：是否公开、验证方法、验证口令等
+}
+
+// 群组操作类型枚举
+enum GroupOperationType {
+  GroupNoneAction = 0;
+  GroupCreate = 1;            // 创建群组
+  GroupDissolve = 2;          // 解散群组
+  GroupSetInfo = 3;           // 设置群组本身的各种信息
+  GroupKickMember = 4;        // 踢人
+  GroupInviteRequest = 5;     // 邀请人请求
+  GroupInviteAnswer = 6;      // 邀请后处理结果
+  GroupJoinRequest = 7;       // 加入请求
+  GroupJoinAnswer = 8;        // 加入请求的处理，同意、拒绝、问题
+  GroupQuit = 9;              // 退出群组
+
+  GroupAddAdmin = 10;          // 增加管理员
+  GroupDelAdmin = 11;          // 删除管理员
+  GroupTransferOwner = 12;     // 转让群主
+  // 可以根据需要添加其他群组操作
+  GroupSetMemberInfo = 13;    // 设置自己在群中的信息
+  GroupSearch = 14;           // 搜素群组
+  GroupSearchMember = 15;     // 人员过多时候，不能全部同步到客户端，需要搜索或者分页
+}
+
+enum GroupOperationResultType{
+    GroupOperationResultNone = 0;
+    GroupOperationResultOk = 1;
+    GroupOperationResultRefuse = 2;
+}
+
+// 群组操作请求消息
+message GroupOpReq {
+  GroupOperationType operation = 1;  // 群组操作类型: 创建群，解散群，设置信息；踢人，邀请人请求，加入请求，请求结果，增加管理员，转让群主
+  GroupMember ReqMem = 2;        // 申请人，便于转发
+  GroupInfo group = 3;           // 涉及的群组信息
+  repeated GroupMember members = 4;  // 涉及的群组成员信息列表
+
+  int64 sendId = 6;               // 用户发给服务器的时候带着
+  int64 msgId = 7;                // 转发给用户的时候才有
+  map<string, string> params = 8;
+}
+
+message GroupOpResult{
+  GroupOperationType operation = 1;
+  GroupMember ReqMem = 2;
+  string result = 3;
+  string detail = 4;
+  GroupInfo group = 5;
+  int64 sendId = 6;               // 用户发给服务器的时候带着
+  int64 msgId = 7;                // 转发给用户的时候才有
+  repeated GroupMember members = 8;  // 涉及的群组成员信息列表
+  map<string, string> params = 9;
+  repeated GroupInfo groups = 10;
+}
+
+
+// 服务定义
+// service MsgService {
+//   rpc ClientEvent (Msg) returns (Msg);
+// }
+
+// 首先需要同步客户端的基础信息，服务端应答各种信息
+message MsgHello {
+  string clientId = 1;      // 客户端标识，用于区分不同客户端
+  string version = 2;       // 客户端的版本信息
+  string platform = 3;      // 客户端运行的平台信息（例如：iOS、Android、Windows等）
+  // 其他可能的字段，取决于你的需求
+  string stage = 5;         // 状态数据, clienthello, serverhello,
+  int64  keyPrint = 6  [jstype = JS_STRING];      // 对称密钥指纹，用于SID
+  int64  rsaPrint = 7  [jstype = JS_STRING];      // 自己的公钥指纹
+  map<string, string> params = 8;  // redirect->ip:port, dht
+}
+
+
+// DL秘钥交换的信息
+// 1. 发起端(客户端使用对方RSA公钥加密临时秘钥给对方)，同时传递的还有秘钥对公钥
+// 2. 服务端将，使用临时秘钥加密秘钥对公钥，算法为ChaCha20, aes256, twofish128
+// 3. 客户将此时双方已经可以计算出共享密钥；用共享密钥加密临时秘钥，并根据加密算法生成秘钥，计算HASH,取8节作为指纹，
+// 4. 服务端计算共享密钥，用共享密钥加密临时秘钥，并计算MD5，校验；
+// 5， 如果校验成功，应答OK，如果失败应答FAIL
+message MsgKeyExchange {
+  int64 keyPrint = 1  [jstype = JS_STRING];
+  int64 rsaPrint = 2  [jstype = JS_STRING];
+  int32 stage = 3;   // 当前处于状态机
+
+  bytes tempKey = 4;  // 临时秘钥，需要RSA加密
+  bytes pubKey = 5;   // 临时公钥，需要RSA加密
+
+  string encType = 6;      // plain, rsa加密，对阵加密类型
+  string status = 7;       // ok, fail
+  string detail = 8;       // 错误信息
+}
+
+message MsgHeartBeat{
+  int64 tm = 1  [jstype = JS_STRING];
+  int64 userId = 2  [jstype = JS_STRING];
+}
+
+
+// 消息优先级
+enum MsgPriority {
+  LOW = 0;
+  NORMAL = 1;
+  HIGH = 2;
+  // 其他优先级...
+}
+
+// 消息状态
+enum ChatMsgStatus {
+  SENDING = 0;
+  SENT = 1;       // 已经发送完成
+  FAILED = 2;     // 失败
+  DELIVERED = 3;   // 送达
+  READ = 4;        // 已读
+  DELETED = 5;     // 已经删除
+  // 其他状态...
+}
+
+enum ChatMsgType {
+  TEXT = 0;
+  IMAGE = 1;
+  VOICE = 2;
+  VIDEO = 3;
+  FILE = 4;
+  DELETE = 5; // 删除之前的消息
+  KEY = 6;    // 会话秘钥协商
+
+  PLUGIN = 100;
+
+  // 其他类型...
+}
+
+// 私聊的加密方式
+enum EncryptType{
+  PLAIN = 0;
+  CUSTOM = 1;
+  CHACHA20 = 2;
+  TWOFISH = 3;
+  AES = 4;
+}
+
+// 聊天类型2种：
+enum ChatType{
+  ChatTypeNone = 0;
+  ChatTypeP2P = 1;
+  ChatTypeGroup = 2;
+}
+
+
+
+
+// 聊天存储的基本信息
+message MsgChat {
+  int64 msgId = 1  [jstype = JS_STRING];               // 消息的全网唯一标识，服务端使用雪花算法生成，因为客户端生成的不可靠
+  int64 userId = 2  [jstype = JS_STRING];              // 用于存储的clusterKey，因为一份消息要存储2次，要转发，需要有这个字段标记给谁
+
+  int64 fromId = 3  [jstype = JS_STRING];              // 发送消息的用户 ID
+  int64 toId = 4  [jstype = JS_STRING];                // 接收消息的用户 ID（对方的用户 ID）
+
+  int64 tm = 5  [jstype = JS_STRING];                  // 消息的时间戳
+
+  string devId = 6;                                    // 多设备登录时的设备 ID
+  int64 sendId = 7 [jstype = JS_STRING];               // 用于确认消息的发送 ID
+
+  ChatMsgType msgType = 8;                             // 消息类型，建议使用枚举
+  bytes data = 9;                                      // 消息的内容，可以使用 bytes 存储二进制数据或文本数据
+
+  MsgPriority priority = 10;                           // 消息的优先级，建议使用枚举
+  int64 refMessageId = 11 [jstype = JS_STRING];        // 引用的消息 ID，如果有的话
+
+  ChatMsgStatus status = 12;      // 消息状态，建议使用枚举
+  int64 sendReply = 13 [jstype = JS_STRING];           // 发送消息的回执状态
+  int64 recvReply = 14 [jstype = JS_STRING];           // 接收消息的回执状态
+  int64 readReply = 15 [jstype = JS_STRING];           // 已读状态的回执
+
+  EncryptType encType = 16;       // 加密类型
+  ChatType chatType = 17;         // p2p, group, system
+  int32 subMsgType = 18;          // 传递给插件区分代码，插件都注册为整数类型，
+  int64 keyPrint = 19 [jstype = JS_STRING];            // 秘钥指纹
+
+  map<string, string> params = 30;
+}
+
+// 消息确认，上传下载的确认
+message MsgChatReply {
+  int64 msgId = 1 [jstype = JS_STRING];        // 要确认的消息ID
+  int64 sendId = 2 [jstype = JS_STRING];
+  int64 sendOk = 3 [jstype = JS_STRING];      // 确认是否成功
+  int64 recvOk = 4 [jstype = JS_STRING];
+  int64 readOk = 5 [jstype = JS_STRING];
+  string extraMsg = 6;
+  int64 userId = 7 [jstype = JS_STRING];        // 应答应该发送给谁
+  int64 fromId = 8 [jstype = JS_STRING];        // 从谁那的应答
+  map<string, string> params = 30;
+}
+
+// 查询的类型：聊天数据，回执,关键字搜索
+enum QueryDataType {
+  QueryDataTypeChatData = 0;
+  QueryDataTypeChatReply = 1;
+  QueryDataTypeFriendOP = 2;
+  QueryDataTypeGroupOP = 3;
+}
+// 同步方式，3种
+enum SynType {
+    SynTypeForward = 0;
+    SynTypeBackward = 1;
+    SynTypeBetween = 2;
+}
+// 登录后查询离线消息，或者查询某些超时的送达和已读
+// 向服务器上报自己当前的消息的位置，请求后续的部分
+// 可能会答应一组消息，也可能应答一组应答，还可能是搜索结果
+// 目前数据库还不能支持复杂的关键字搜索；
+message MsgQuery{
+    int64 userId = 1 [jstype = JS_STRING];               // 用户ID
+    int64 groupId = 2 [jstype = JS_STRING];              // 如果查询私聊的消息不填，如果是查群聊就填写群聊的号码
+    int64 bigId = 3 [jstype = JS_STRING];                // 这里是消息的范围
+    int64 littleId = 4 [jstype = JS_STRING];             // 消息范围
+    SynType synType = 5;                                   // 正向=0，反向=1
+    int64 tm = 6 [jstype = JS_STRING];
+
+    ChatType chatType = 7;                               // p2p, group
+    QueryDataType queryType = 8;                         // data, reply
+    map<string, string> params = 9;
+}
+
+// 查询的回执
+message MsgQueryResult{
+  int64 userId = 1 [jstype = JS_STRING];               // 用于存储的clusterKey
+  int64 groupId = 2 [jstype = JS_STRING];                 // 如果查询私聊的消息不填，如果是查群聊就填写群聊的号码
+  int64 bigId = 3 [jstype = JS_STRING];                // 这里是消息的范围
+  int64 littleId = 4 [jstype = JS_STRING];             // 消息范围
+  SynType synType = 5;                                   // 正向=0，反向=1
+  int64 tm = 6 [jstype = JS_STRING];
+
+  ChatType chatType = 7;                               // p2p, group
+  QueryDataType queryType = 8;                         // data, reply
+  repeated MsgChat chatDataList = 11;
+  repeated MsgChatReply chatReplyList = 12;
+  repeated FriendOpResult friendOpRetList = 13;
+  repeated GroupOpResult groupOpRetList = 14;
+  string result = 15;
+  string detail = 16;
+
+  map<string, string> params = 30;
+}
+
+// 上传文件的消息
+message MsgUploadReq {
+  string fileName = 1;      // 上传的文件名
+  int64 fileSize = 2;       // 上传的文件大小
+  bytes fileData = 3;       // 上传的文件数据
+
+  string hashType = 4;      // 文件哈希算法类型（例如：MD5、SHA-256等）
+  string hashCode = 5;       // 文件哈希值
+  string fileType = 6;      // 文件类型（例如：文本、图像、视频等）
+  int64 sendId = 7;        // 用于确认消息的发送 ID
+  int32  chunkIndex = 8;   // 块编号
+  int32  chunkCount = 9;   // 总块数
+  int32  chunkSize = 10;   // 切块大小
+  int64  groupId = 11;
+}
+
+// 上传文件的响应消息
+message MsgUploadReply {
+  string fileName = 1;    // 上传文件的名称，用于标识文件
+  int64 sendId = 2;      // 用于确认消息的发送 ID
+  string uuidName = 3;    // 服务器生成的文件唯一标识，例如存储在服务器上的文件名
+  int32  chunkIndex = 4;  // 对单独每个块的应答
+  string result = 5;      // 上传结果或状态信息
+  string detail = 6;
+
+}
+
+// 下载文件的请求消息
+message MsgDownloadReq {
+  string sendId = 1;        // 用于确认消息的发送 ID
+  string fileName = 2;      // 要下载的文件名
+  int64  offset = 3;        // 下载的文件偏移量，如果不需要分片下载，可以忽略
+}
+
+// 下载文件的响应消息
+message MsgDownloadReply {
+  string sendId = 1;        // 用于确认消息的发送 ID
+  string fileName = 2;      // 要下载的文件名
+  string realName = 3;      // 实际保存在服务器上的文件名或标识符
+  string fileType = 4;      // 文件类型（例如：文本、图像、视频等）
+
+  string hashType = 5;      // 文件哈希算法类型，表示计算文件哈希值所使用的算法（MD5、SHA-256等）
+  string hashCode = 6;       // 文件哈希值，用于验证文件完整性
+  bytes data = 7;           // 下载的文件数据
+  int64 size = 8;           // 文件总大小
+  int64 offset = 9;         // 下载的文件偏移量，如果不需要分片下载，可以忽略
+  int32 chunkSize = 10;
+  int32 chunkCount = 11;
+  int32 chunkIndex = 12;   // 0 索引
+
+  string result = 13;
+  string detail = 14;
+ }
+
+// 错误消息类型
+enum ErrorMsgType{
+  ErrTNone = 0;
+  ErrTVersion = 1;
+  ErrTKeyPrint = 2;
+  ErrTRedirect = 3;
+  ErrTWrongPwd = 4;   // 密码错误
+  ErrTWrongCode = 5;  // 验证码错误
+  ErrTRsaPrint = 6;   // 公钥错误
+  ErrTTempKey = 7;    // 临时秘钥设置错误
+  ErrTEncType = 8;    // 加密算法不支持
+  ErrTServerInside = 9;
+  ErrTStage = 10;   // 阶段字段设置错误
+  ErrTPublicKey = 11; // 65 字节
+  ErrTKeyConflict = 12; // 指纹碰撞
+  ErrTCheckData = 13;   // 解密后验证秘钥
+  ErrTMsgContent = 14;  // 消息内容与类型不匹配
+  ErrTNotLogin = 15;   // 未登录
+  ErrTNotPermission = 16; // 权限不够
+  ErrTDisabled = 17;  // 用户或者帖子被禁用了
+  ErrTDeleted = 18;   // 用户或者消息被删除了
+  ErrTEmail = 19;     // 邮件验证码发送错误
+  ErrTPhone = 20;     // 手机验证码发送错误
+  ErrTNotFriend = 21; // 不是好友
+}
+
+message MsgError{
+  int32  code = 1;
+  string detail = 2;
+  map<string, string> params = 9;
+}
+
+// 通用所有消息类型的定义
+enum ComMsgType {
+  MsgTUnused = 0;        // 未使用的消息类型
+  MsgTHello = 1;         // 用于握手的消息
+  MsgTHeartBeat = 2;     // 用于保持连接的心跳消息
+  MsgTError = 3;         // 用于传递错误信息的消息
+  MsgTKeyExchange = 4;   // DH密钥交换的消息
+
+  MsgTChatMsg = 11;
+  MsgTChatReply = 12;
+  MsgTQuery = 13;         // 查询消息应该放在ChatMsg外面，
+  MsgTQueryResult = 14;  // 推送的消息单个发送，查询才以组发送
+
+  MsgTUpload = 21;        // 上传文件的消息
+  MsgTDownload = 22;      // 下载文件的消息，文件操作分为带内和带外，这里是小文件可以这样操作
+  MsgTUploadReply = 23;
+  MsgTDownloadReply = 24;
+
+
+  // 用户与群组消息一共是6大类，
+  MsgTUserOp = 31;       // 所有用户相关操作的消息
+  MsgTUserOpRet = 32;
+  MsgTFriendOp = 33;
+  MsgTFriendOpRet = 34;
+  MsgTGroupOp = 35;      // 所有群组相关的操作
+  MsgTGroupOpRet = 36;
+
+  MsgTOther = 100;      // 转发给其他的扩展模块的
+
+}
+
+message MsgPlain{
+  oneof message {
+    MsgHello hello = 7;           // Hello消息
+    MsgHeartBeat heartBeat = 8;   // 心跳消息
+    MsgError     errorMsg = 9;
+    MsgKeyExchange keyEx = 10;     // 秘钥协商
+
+    MsgChat chatData = 11;         // 聊天消息
+    MsgChatReply chatReply = 12;   // 聊天回复消息
+    MsgQuery commonQuery = 13;           // 请求同步消息，或者同步超时回执
+    MsgQueryResult commonQueryRet = 14;   // 查询结果
+
+    MsgUploadReq uploadReq = 21;         // 上传请求消息
+    MsgDownloadReq downloadReq = 22;     // 下载请求消息
+    MsgUploadReply uploadReply = 23;    // 上传回复消息
+    MsgDownloadReply downloadReply = 24; // 下载回复消息
+
+
+    UserOpReq userOp = 31;             // 用户操作请求消息
+    UserOpResult userOpRet = 32;       // 用户操作结果消息
+    FriendOpReq friendOp = 33;         // 好友操作请求消息
+    FriendOpResult friendOpRet = 34;   // 好友操作结果消息
+    GroupOpReq groupOp = 35;           // 群组操作请求消息
+    GroupOpResult groupOpRet = 36;     // 群组操作结果消息
+
+    bytes  otherTypeMsg = 100;          // msgType==100时，直接将消息分发给扩展服务，不保存
+  }
+}
+
+// 所有的消息都用
+message Msg {
+  int32 version = 1;            // 协议版本号
+  int64 keyPrint = 2 [jstype = JS_STRING];           // 0是不加密，非0是加密
+  int64 tm = 3 [jstype = JS_STRING];                  // 时间戳
+  ComMsgType msgType = 4;        // 通用消息类型
+  int32 subType = 5;             // msgType==100时，其他类型的消息扩展模块自己定义
+
+  oneof message {
+    bytes cipher = 11;             // 密文，需要解密后，二次解码
+    MsgPlain plainMsg = 12;        // 明文的消息直接放到这里；
+  }
+}
+
+// 备注：
+// 1) 如果是与服务直接自己加密，那么所有的消息都放在cipher中，需要二次解密后分发；
+// 1.1) 解密后的消息，字节流需要使用MsgPlain类型去反序列化，之后分发消息；
+// 2) 与服务之间明文传输，可以依赖HTTPS保证一定程度安全；
+// 2.1) 如果用户之间约定了加密，那么只有MsgChat其中的消息字段是密文，不影响其他逻辑；
+
+

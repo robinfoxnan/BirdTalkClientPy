@@ -1,0 +1,1 @@
+protoc --python_out=../birdtalk_sdk msg.proto
