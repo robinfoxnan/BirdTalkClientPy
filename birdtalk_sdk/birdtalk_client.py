@@ -27,7 +27,13 @@ class ClientState:
     KEY_EXCHANGE = 31
     WAIT_LOGIN = 32
     REGISTERING = 33
-    READY = 34
+    LOGINING = 34
+    READY = 35
+
+    LOGIN_FAIL = 40
+    WAIT_CODE = 41
+    LOGIN_OK = 42
+    REGISTER_OK = 43
 
 
 
@@ -49,6 +55,29 @@ class BirdTalkClient:
         self.keyEx.load_shared_key(self.keyName)
         self.ws_state = ClientState.INITIAL
         self.client_state = ClientState.HELLO
+        self.client_sub_state = None
+        self.onStateChangeCallback = None
+        self.onErrorCallback = None
+        self.userInfo = None
+    
+    def get_user_info(self)-> msg_pb2.UserInfo:
+        return self.userInfo
+    
+    def set_error_callback(self, callback):
+        self.onErrorCallback = callback
+
+    def set_state_callback(self, callback):
+        self.onStateChangeCallback = callback
+
+
+
+    # 设置状态机改变
+    async def set_state(self, state, sub_state=None):
+        self.client_state = state
+        self.client_sub_state = sub_state
+
+        if self.onStateChangeCallback != None:
+            await self.onStateChangeCallback(state, sub_state)
 
     async def on_connect(self, success):
         if success:
@@ -118,8 +147,7 @@ class BirdTalkClient:
             hello = self.create_hello()
             await self.send(hello)
             return
-        if self.client_state == ClientState.KEY_EXCHANGE:
-            return
+        
         
 
     async def dispatch_msg(self, msg : msg_pb2.Msg) -> None:
@@ -132,32 +160,36 @@ class BirdTalkClient:
         if msg.msgType == msg_pb2.ComMsgType.MsgTHello:
             await self.on_hello(msg)
             return
-        if msg.msgType == msg_pb2.ComMsgType.MsgTError:
+        elif msg.msgType == msg_pb2.ComMsgType.MsgTError:
             await self.on_error(msg)
             return
-        if msg.msgType == msg_pb2.ComMsgType.MsgTKeyExchange:
+        elif msg.msgType == msg_pb2.ComMsgType.MsgTKeyExchange:
             await self.on_key_exchange(msg)
             return
-        
+        elif msg.msgType == msg_pb2.ComMsgType.MsgTUserOpRet: # 用户操作的应答
+            await self.on_user_op_ret(msg)
+            return
 
 
     async def on_error(self, msg: msg_pb2.Msg):
         err = msg.plainMsg.errorMsg
-        print(err)
+        if self.onErrorCallback != None:
+            await self.onErrorCallback("test")
+        
 
     async def on_hello(self, msg: msg_pb2.Msg):
         hello = msg.plainMsg.hello
         if hello.stage == "waitlogin":   # 执行密钥交换
-            self.client_state = ClientState.KEY_EXCHANGE
+            await self.set_state(ClientState.KEY_EXCHANGE)
             msg = self.create_keyex1()
             await self.send(msg)
 
         elif hello.stage == "needlogin": # 注册或者登录
-            self.client_state = ClientState.WAIT_LOGIN
+            await self.set_state(ClientState.WAIT_LOGIN)
             print("need login first")
 
         elif hello.stage == "waitdata":  # 
-            self.client_state = ClientState.READY
+            await self.set_state(ClientState.READY)
             print("login with key print ok")
 
         
@@ -186,13 +218,35 @@ class BirdTalkClient:
         
         elif keyex.stage == 4:  # 交换秘钥之后也需要登录，或者注册
             if keyex.status == "waitdata":
-                self.client_state = ClientState.READY
+                await self.set_state(ClientState.READY, ClientState.KEY_EXCHANGE)
                 print("user login ok")
             if keyex.status == "needlogin":
-                self.client_state = ClientState.WAIT_LOGIN
+                await self.set_state(ClientState.WAIT_LOGIN, ClientState.KEY_EXCHANGE)
                 print("user should login or register")
 
-        
+    async def on_user_op_ret(self, msg: msg_pb2.Msg):
+        msgRet = msg.plainMsg.userOpRet
+        if msgRet.operation == msg_pb2.UserOperationType.Login:   # 登录返回
+            if msgRet.result != "ok":
+                await self.set_state(ClientState.WAIT_LOGIN, ClientState.LOGIN_FAIL)
+                return
+            #print(msgRet.users[0])
+            self.userInfo = msgRet.users[0]
+            
+            if msgRet.status == "loginok":
+                await self.set_state(ClientState.READY, ClientState.LOGIN_OK)
+            elif msgRet.status == "waitcode":
+                await self.set_state(ClientState.LOGINING, ClientState.WAIT_CODE)
+
+        elif msgRet.operation == msg_pb2.UserOperationType.RegisterUser:  # 注册返回
+            if msgRet.status == "loginok":
+                await self.set_state(ClientState.READY, ClientState.LOGIN_OK)
+            elif msgRet.status == "waitcode":
+                await self.set_state(ClientState.REGISTERING, ClientState.WAIT_CODE)
+            elif msgRet.status == "needlogin":
+                await self.set_state(ClientState.WAIT_LOGIN, ClientState.REGISTER_OK)
+
+            
 
 ##################################################################
     def create_hello(self) -> msg_pb2.Msg:
@@ -287,3 +341,39 @@ class BirdTalkClient:
         msg.plainMsg.CopyFrom(plainMsg)
         msg.tm = tm  # returns a Unix timestamp in seconds
         return msg
+    
+    def get_current_timestamp(self)-> int:
+        return int(time.time())
+
+    async def login(self, mode, user_id, pwd):
+        print("发送登录消息")
+
+        # 创建 UserInfo 对象
+        user_info = msg_pb2.UserInfo()
+        if mode == "phone":
+            user_info.phone = user_id
+        elif mode == "email":
+            user_info.email = user_id
+        else:
+            user_info.userId = user_id
+            user_info.params["pwd"] = pwd
+
+        # 创建 UserOpReq 对象
+        reg_op_req = msg_pb2.UserOpReq()
+        reg_op_req.operation = msg_pb2.UserOperationType.Login
+        reg_op_req.user.CopyFrom(user_info)
+        reg_op_req.params["loginmode"] = mode
+
+        # 创建 MsgPlain 对象
+        plain_msg = msg_pb2.MsgPlain()
+        plain_msg.userOp.CopyFrom(reg_op_req)
+
+        # 创建 Msg 对象
+        msg = msg_pb2.Msg()
+        msg.msgType = msg_pb2.ComMsgType.MsgTUserOp
+        msg.version = 1
+        msg.plainMsg.CopyFrom(plain_msg)
+        msg.tm = self.get_current_timestamp()
+
+        await self.send(msg)
+
